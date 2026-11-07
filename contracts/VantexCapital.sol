@@ -9,9 +9,10 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 /**
  * @title VantexCapital
  * @notice Stablecoin investment and referral accounting based on the supplied Vantex plan.
- * @dev Rates use basis points (100 = 1%). Flexible positions are capped at 200 days because
- *      the source brochure does not state a duration. This is a pooled-reward contract: the
- *      owner must keep it solvent and no return is guaranteed by the code.
+ * @dev Rates use basis points (100 = 1%). Each package releases equal daily profit and capital,
+ *      producing the brochure totals of 1.00%–1.30% per day. Positions are capped at 200 days
+ *      because the source brochure does not state a duration. This is a pooled-reward contract:
+ *      the owner must keep it solvent and no return is guaranteed by the code.
  */
 contract VantexCapital is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -22,7 +23,7 @@ contract VantexCapital is Ownable, ReentrancyGuard {
     uint32 private constant SALARY_CYCLE = 15 days;
     uint8 private constant MAX_REFERRAL_LEVEL = 15;
 
-    enum Plan { Flexible, Starter, Growth, Elite }
+    enum Plan { Package1, Package2, Package3, Package4 }
     enum Leg { A, B }
     enum Split { A60B40, A40B60 }
 
@@ -142,7 +143,9 @@ contract VantexCapital is Ownable, ReentrancyGuard {
         paymentToken.safeTransfer(msg.sender, amount);
         totalRewardsPaid += amount;
         emit RoiClaimed(msg.sender, amount);
-        _payReferralRoi(msg.sender, amount);
+        // Half of the package payout is profit and half is released capital. ROI-on-ROI
+        // commission applies only to the profit component.
+        _payReferralRoi(msg.sender, amount / 2);
     }
 
     function compoundRoi(Plan plan) external nonReentrant whenNotPaused returns (uint256 amount) {
@@ -161,7 +164,7 @@ contract VantexCapital is Ownable, ReentrancyGuard {
         _positions[msg.sender].push(Position(uint128(amount), 0, started, started + duration, rate, plan));
         totalCompounded += amount;
         emit RoiCompounded(msg.sender, _positions[msg.sender].length - 1, amount, plan);
-        _payReferralRoi(msg.sender, amount);
+        _payReferralRoi(msg.sender, amount / 2);
     }
 
     function claimSalary() external nonReentrant whenNotPaused returns (uint256 amount) {
@@ -197,19 +200,12 @@ contract VantexCapital is Ownable, ReentrancyGuard {
     }
 
     function planTerms(uint256 amount, Plan plan) public view returns (uint16 rate, uint32 duration) {
-        if (plan == Plan.Flexible) {
-            if (amount <= 100 * unit) rate = 50;
-            else if (amount <= 500 * unit) rate = 55;
-            else if (amount <= 1_000 * unit) rate = 60;
-            else rate = 65;
-            duration = 200 days;
-        } else if (plan == Plan.Starter) {
-            return (60, 90 days);
-        } else if (plan == Plan.Growth) {
-            return (65, 150 days);
-        } else {
-            return (70, 200 days);
-        }
+        if (plan == Plan.Package1 && amount >= unit && amount <= 100 * unit) rate = 100;
+        else if (plan == Plan.Package2 && amount >= 101 * unit && amount <= 500 * unit) rate = 110;
+        else if (plan == Plan.Package3 && amount >= 501 * unit && amount <= 1_000 * unit) rate = 120;
+        else if (plan == Plan.Package4 && amount >= 1_001 * unit && amount <= 2_500 * unit) rate = 130;
+        else revert InvalidAmount();
+        duration = 200 days;
     }
 
     function pendingRoi(address account) public view returns (uint256 amount) {

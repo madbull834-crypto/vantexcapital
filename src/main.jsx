@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ethers } from "ethers";
-import { ArrowUpRight, BarChart3, ChevronRight, CircleDollarSign, Clock3, Copy, Crown, Network, ShieldCheck, Sparkles, Users, Wallet, Zap } from "lucide-react";
+import { ArrowUpRight, BarChart3, ChevronRight, CircleDollarSign, Clock3, Crown, LayoutDashboard, Network, ShieldCheck, Sparkles, Users, Wallet, Zap } from "lucide-react";
+import Dashboard from "./Dashboard";
 import "./styles.css";
 
 const CONTRACT_ADDRESS = import.meta.env.VITE_VANTEX_ADDRESS || "";
@@ -24,10 +25,10 @@ const VANTEX_ABI = [
 const TOKEN_ABI = ["function approve(address,uint256) returns (bool)", "function allowance(address,address) view returns (uint256)", "function balanceOf(address) view returns (uint256)"];
 
 const plans = [
-  { name: "Flexible", label: "$1 — $2,500", rate: "0.50—0.65%", days: "200 day cap", color: "gold", index: 0, copy: "Rate scales automatically with your deposit tier." },
-  { name: "Starter", label: "Start steady", rate: "0.60%", days: "90 days", color: "blue", index: 1, copy: "A focused first step with a defined finish." },
-  { name: "Growth", label: "Build momentum", rate: "0.65%", days: "150 days", color: "green", index: 2, copy: "A longer runway designed for compounding." },
-  { name: "Elite", label: "Maximum term", rate: "0.70%", days: "200 days", color: "purple", index: 3, copy: "The highest brochure rate and longest term." }
+  { name: "Package 1", label: "$1 — $100", rate: "0.50%", totalRate: "1.00%", rateValue: 1.00, min: 1, max: 100, days: "200 day cap", color: "gold", index: 0, copy: "0.50% profit + 0.50% capital release = 1.00% total daily." },
+  { name: "Package 2", label: "$101 — $500", rate: "0.55%", totalRate: "1.10%", rateValue: 1.10, min: 101, max: 500, days: "200 day cap", color: "blue", index: 1, copy: "0.55% profit + 0.55% capital release = 1.10% total daily." },
+  { name: "Package 3", label: "$501 — $1,000", rate: "0.60%", totalRate: "1.20%", rateValue: 1.20, min: 501, max: 1000, days: "200 day cap", color: "purple", index: 2, copy: "0.60% profit + 0.60% capital release = 1.20% total daily." },
+  { name: "Package 4", label: "$1,001 — $2,500", rate: "0.65%", totalRate: "1.30%", rateValue: 1.30, min: 1001, max: 2500, days: "200 day cap", color: "green", index: 3, copy: "0.65% profit + 0.65% capital release = 1.30% total daily." }
 ];
 
 const levels = [10, 5, 4, 3, 3, 3, 2, 2, 1, 1, 2, 2, 3, 4, 5];
@@ -35,12 +36,13 @@ const fmt = (value, maximumFractionDigits = 2) => Number(value || 0).toLocaleStr
 const short = (address) => address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "Connect wallet";
 
 function App() {
+  const [route, setRoute] = useState(window.location.hash === "#/dashboard" ? "dashboard" : "home");
   const [account, setAccount] = useState("");
   const [provider, setProvider] = useState(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [amount, setAmount] = useState("100");
-  const [selectedPlan, setSelectedPlan] = useState(1);
+  const [selectedPlan, setSelectedPlan] = useState(0);
   const [referrer, setReferrer] = useState("");
   const [leg, setLeg] = useState(0);
   const [split, setSplit] = useState(0);
@@ -78,6 +80,12 @@ function App() {
     return () => window.ethereum.removeListener?.("accountsChanged", changed);
   }, [provider]);
 
+  useEffect(() => {
+    const onHashChange = () => setRoute(window.location.hash === "#/dashboard" ? "dashboard" : "home");
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
   const transact = async (kind) => {
     if (!account) return connect();
     if (!isConfigured) return setNotice("Add VITE_VANTEX_ADDRESS and VITE_TOKEN_ADDRESS to enable transactions.");
@@ -102,17 +110,39 @@ function App() {
     finally { setBusy(false); }
   };
 
+  const selectPlan = (index) => {
+    const plan = plans[index];
+    setSelectedPlan(index);
+    const numericAmount = Number(amount || 0);
+    if (numericAmount < plan.min || numericAmount > plan.max) setAmount(String(plan.min));
+  };
+
+  const changeAmount = (value) => {
+    setAmount(value);
+    const numericAmount = Number(value);
+    const matchingPlan = plans.find(plan => numericAmount >= plan.min && numericAmount <= plan.max);
+    if (matchingPlan) setSelectedPlan(matchingPlan.index);
+  };
+
   const projected = useMemo(() => {
     const plan = plans[selectedPlan];
-    const rate = Number(plan.rate.slice(0, 4));
     const days = Number(plan.days) || 200;
-    return Number(amount || 0) * rate / 100 * days;
+    return Number(amount || 0) * plan.rateValue / 100 * days;
   }, [amount, selectedPlan]);
+
+  const openDashboard = () => { window.location.hash = "/dashboard"; setRoute("dashboard"); window.scrollTo(0, 0); };
+  const openHome = () => { window.location.hash = ""; setRoute("home"); window.scrollTo(0, 0); };
+
+  if (route === "dashboard") return <Dashboard {...{
+    account, connect, data, notice, busy, isConfigured, plans, selectedPlan,
+    setSelectedPlan: selectPlan, amount, setAmount: changeAmount, projected, transact, referrer,
+    setReferrer, leg, setLeg, split, setSplit
+  }} tokenDecimals={TOKEN_DECIMALS} onHome={openHome}/>;
 
   return <div className="app">
     <nav className="nav wrap">
       <a className="brand" href="#top"><span className="mark">V</span><span>VANTEX<small>CAPITAL</small></span></a>
-      <div className="navlinks"><a href="#plans">Plans</a><a href="#network">Network</a><a href="#dashboard">Dashboard</a></div>
+      <div className="navlinks"><a href="#plans">Plans</a><a href="#network">Network</a><button onClick={openDashboard}>Dashboard</button></div>
       <button className="wallet-btn" onClick={connect}><Wallet size={17}/>{short(account)}</button>
     </nav>
 
@@ -122,7 +152,7 @@ function App() {
           <div className="eyebrow"><Sparkles size={14}/> Stablecoin-powered · On-chain accounting</div>
           <h1>Build your capital.<br/><em>Grow your network.</em></h1>
           <p>A transparent dashboard for the Vantex Capital plan—investment terms, daily accrual, referral rewards and business milestones in one place.</p>
-          <div className="hero-actions"><a className="primary" href="#dashboard">Open dashboard <ArrowUpRight size={18}/></a><a className="text-link" href="#plans">Explore plans <ChevronRight size={18}/></a></div>
+          <div className="hero-actions"><button className="primary" onClick={openDashboard}>Open dashboard <ArrowUpRight size={18}/></button><a className="text-link" href="#plans">Explore plans <ChevronRight size={18}/></a></div>
           <div className="trust-row"><span><ShieldCheck/>Auditable rules</span><span><Clock3/>Daily accrual</span><span><Network/>15 levels</span></div>
         </div>
         <div className="hero-visual">
@@ -132,7 +162,7 @@ function App() {
             <div className="chart"><i/><i/><i/><i/><i/><i/><i/></div>
             <div className="growth-foot"><span>Principal ${fmt(amount)}</span><b>+${fmt(projected)} accrual</b></div>
           </div>
-          <div className="float-card"><Crown/><span>ELITE RATE<strong>0.70% daily</strong></span></div>
+          <div className="float-card"><Crown/><span>PACKAGE 4 TOTAL<strong>1.30% daily</strong></span></div>
         </div>
       </section>
 
@@ -140,12 +170,13 @@ function App() {
 
       <section id="plans" className="section wrap">
         <div className="section-head"><div><div className="eyebrow">Investment packages</div><h2>Choose your pace.</h2></div><p>Four paths, one auditable accrual engine. All positions have a defined maximum term.</p></div>
-        <div className="plan-grid">{plans.map((plan) => <article key={plan.name} className={`plan-card ${plan.color} ${selectedPlan === plan.index ? "active" : ""}`} onClick={() => setSelectedPlan(plan.index)}>
+        <div className="plan-grid">{plans.map((plan) => <article key={plan.name} className={`plan-card ${plan.color} ${selectedPlan === plan.index ? "active" : ""}`} onClick={() => selectPlan(plan.index)}>
           <div className="plan-top"><span>{plan.name}</span>{plan.index === 2 && <b>POPULAR</b>}</div>
-          <h3>{plan.rate}</h3><small>daily accrual</small><div className="divider"/>
-          <strong>{plan.days}</strong><p>{plan.copy}</p><button>Select plan <ArrowUpRight size={16}/></button>
+          <h3>{plan.rate}</h3><small>daily profit</small><div className="divider"/>
+          <strong>{plan.label}</strong>
+          <p>{plan.days}. {plan.copy}</p><button>Select package <ArrowUpRight size={16}/></button>
         </article>)}</div>
-        <div className="tier-strip"><span>Flexible tiers</span><b>$1–$100 <i>0.50%</i></b><b>$101–$500 <i>0.55%</i></b><b>$501–$1,000 <i>0.60%</i></b><b>$1,001–$2,500 <i>0.65%</i></b></div>
+        <div className="tier-strip"><span>Package profit rates</span><b>$1–$100 <i>0.50%</i></b><b>$101–$500 <i>0.55%</i></b><b>$501–$1,000 <i>0.60%</i></b><b>$1,001–$2,500 <i>0.65%</i></b></div>
       </section>
 
       <section id="network" className="network-section">
@@ -164,7 +195,7 @@ function App() {
 
       <section id="dashboard" className="dashboard-section">
         <div className="wrap">
-          <div className="dashboard-head"><div><div className="eyebrow">Investor console</div><h2>Your capital cockpit.</h2></div><div className={`status ${account ? "live" : ""}`}><i/>{account ? `Connected ${short(account)}` : "Wallet not connected"}</div></div>
+          <div className="dashboard-head"><div><div className="eyebrow">Investor console</div><h2>Your capital cockpit.</h2></div><button className="launch-dashboard" onClick={openDashboard}><LayoutDashboard size={17}/> Launch full dashboard <ArrowUpRight size={16}/></button></div>
           {!isConfigured && <div className="config-note"><Zap size={18}/><span><b>Preview mode.</b> Set the two contract address environment variables after deployment to enable live reads and transactions.</span></div>}
           {notice && <div className="notice">{notice}</div>}
           {account && data.member && !data.member.registered && <div className="onboard-panel">
@@ -186,9 +217,9 @@ function App() {
             <div className="invest-panel">
               <div className="invest-title"><span>New position</span><b>{plans[selectedPlan].name} plan</b></div>
               <label>Deposit amount <span>USDT</span></label>
-              <div className="amount-input"><span>$</span><input type="number" min="1" max="2500" value={amount} onChange={e => setAmount(e.target.value)}/><b>USDT</b></div>
-              <div className="quick">{[100,500,1000,2500].map(v => <button key={v} onClick={() => setAmount(String(v))}>${v.toLocaleString()}</button>)}</div>
-              <div className="summary"><div><span>Daily rate</span><b>{plans[selectedPlan].rate}</b></div><div><span>Term</span><b>{plans[selectedPlan].days}</b></div><div><span>Projected accrual</span><b className="gold">+${fmt(projected)}</b></div></div>
+              <div className="amount-input"><span>$</span><input type="number" min="1" max="2500" value={amount} onChange={e => changeAmount(e.target.value)}/><b>USDT</b></div>
+              <div className="quick">{[100,500,1000,2500].map(v => <button key={v} onClick={() => changeAmount(String(v))}>${v.toLocaleString()}</button>)}</div>
+              <div className="summary"><div><span>Daily profit</span><b>{plans[selectedPlan].rate}</b></div><div><span>Daily total incl. capital</span><b>{plans[selectedPlan].totalRate}</b></div><div><span>Term</span><b>{plans[selectedPlan].days}</b></div><div><span>Projected total payout</span><b className="gold">+${fmt(projected)}</b></div></div>
               <button className="invest-button" disabled={busy || (data.member && !data.member.registered)} onClick={() => transact("invest")}>{busy ? "Processing…" : account ? "Approve & invest" : "Connect wallet to invest"}<ArrowUpRight size={18}/></button>
               <p className="fineprint">Projections are mathematical outputs of the contract terms, not a guarantee of profit. Review the contract and risks before transacting.</p>
             </div>

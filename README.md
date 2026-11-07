@@ -4,8 +4,8 @@ Full-stack EVM implementation of the supplied Vantex Capital brochure: a Solidit
 
 ## Included rules
 
-- Flexible deposits from $1–$2,500 with 0.50%–0.65% daily rate tiers and a 200-day safety cap.
-- Starter (90 days / 0.60%), Growth (150 days / 0.65%), and Elite (200 days / 0.70%) positions.
+- Four amount-bound packages: $1–$100 at 0.50%, $101–$500 at 0.55%, $501–$1,000 at 0.60%, and $1,001–$2,500 at 0.65% daily profit. Each releases capital at the same daily rate (1.00%–1.30% combined daily payout) and has a 200-day safety cap.
+- ROI-on-ROI commissions apply to the profit component of a member's claim, not to released capital.
 - Fifteen-level ROI referral percentages: `10, 5, 4, 3, 3, 3, 2, 2, 1, 1, 2, 2, 3, 4, 5`.
 - Binary A/B registration with selectable 60/40 or 40/60 volume normalization.
 - Qualified depth at $100, $300, $800, and $1,500 of balanced business.
@@ -32,4 +32,4 @@ For a real network set `PAYMENT_TOKEN` to the deployed stablecoin address before
 
 ## Important assumptions and risk notes
 
-The source brochure does not specify a blockchain, token, flexible-plan duration, withdrawal policy, or how 60/40 organization volume is calculated. This implementation uses an EVM-compatible chain, a configurable 6-decimal stablecoin, caps flexible positions at 200 days, and normalizes balanced volume against the selected split. It does not promise solvency or profit; rewards require sufficient token funding. Commission and financial-product rules vary by jurisdiction. Obtain a security audit and legal review before any production deployment.
+The source brochure does not specify a blockchain, token, package duration, withdrawal policy, or how 60/40 organization volume is calculated. This implementation uses an EVM-compatible chain, a configurable 6-decimal stablecoin, caps package positions at 200 days, and normalizes balanced volume against the selected split. It does not promise solvency or profit; rewards require sufficient token funding. Commission and financial-product rules vary by jurisdiction. Obtain a security audit and legal review before any production deployment.
