@@ -50,7 +50,7 @@ export default function Dashboard({
       <button className="portal-brand" onClick={onHome}><span>V</span><div>VANTEX<small>CAPITAL</small></div></button>
       <nav>{navigation.map(([key, Icon, label]) => <button key={key} className={section === key ? "active" : ""} onClick={() => setSection(key)}><Icon size={18}/><span>{label}</span></button>)}</nav>
       <div className="sidebar-foot">
-        <div className="chain-card"><ShieldCheck size={18}/><div><b>Local network</b><span>Chain ID 31337</span></div><i/></div>
+        <div className="chain-card"><ShieldCheck size={18}/><div><b>BSC Testnet</b><span>Chain ID 97</span></div><i/></div>
         <button className="back-site" onClick={onHome}><ArrowLeft size={16}/> Back to website</button>
       </div>
     </aside>

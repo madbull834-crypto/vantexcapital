@@ -11,25 +11,32 @@ Full-stack EVM implementation of the supplied Vantex Capital brochure: a Solidit
 - Qualified depth at $100, $300, $800, and $1,500 of balanced business.
 - Salary ranks at $1k/$2k/$5k/$10k/$20k business, paid $25/$50/$125/$250/$500 every 15 days for six cycles.
 
-## Run locally
+## BSC Testnet contracts
+
+- Vantex: `0x9D648EF1c739db29a2a5186acE062Ad877dA0918`
+- Mock USDT: `0xbAf33f644C8aE8763369A7EB8814D0B69467614C`
+- Network: BSC Testnet (`97`)
+
+The frontend requests BSC Testnet when a wallet connects. No local blockchain deployment is required.
+
+## Run the frontend
 
 ```bash
-npm install
+npm ci
+cp .env.example .env
 npm run compile
 npm test
 npm run dev
 ```
 
-Deploy locally with a Hardhat node, copy the returned contract addresses into `.env`, and restart Vite:
+Build the production bundle in `dist/`:
 
 ```bash
-npx hardhat node
-npm run deploy:local
-cp .env.example .env
+npm run build
 ```
 
-For a real network set `PAYMENT_TOKEN` to the deployed stablecoin address before running `scripts/deploy.js`. The deployer becomes the contract owner.
+To deploy a replacement BSC Testnet instance, add a funded test-wallet `DEPLOYER_PRIVATE_KEY` to `.env` and run `npm run deploy:testnet`. Leave `PAYMENT_TOKEN` unset to deploy a new MockUSDT, or set it to an existing BSC Testnet token. Never commit `.env`.
 
 ## Important assumptions and risk notes
 
-The source brochure does not specify a blockchain, token, package duration, withdrawal policy, or how 60/40 organization volume is calculated. This implementation uses an EVM-compatible chain, a configurable 6-decimal stablecoin, caps package positions at 200 days, and normalizes balanced volume against the selected split. It does not promise solvency or profit; rewards require sufficient token funding. Commission and financial-product rules vary by jurisdiction. Obtain a security audit and legal review before any production deployment.
+The source brochure does not specify a blockchain, token, package duration, withdrawal policy, or how 60/40 organization volume is calculated. This test deployment uses BSC Testnet, a 6-decimal mock stablecoin, caps package positions at 200 days, and normalizes balanced volume against the selected split. It does not promise solvency or profit; rewards require sufficient token funding. Commission and financial-product rules vary by jurisdiction. Obtain a security audit and legal review before any production deployment.

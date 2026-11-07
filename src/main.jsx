@@ -9,6 +9,14 @@ const CONTRACT_ADDRESS = import.meta.env.VITE_VANTEX_ADDRESS || "";
 const TOKEN_ADDRESS = import.meta.env.VITE_TOKEN_ADDRESS || "";
 const TOKEN_DECIMALS = Number(import.meta.env.VITE_TOKEN_DECIMALS || 6);
 const ZERO = "0x0000000000000000000000000000000000000000";
+const BSC_TESTNET_CHAIN_ID = "0x61";
+const BSC_TESTNET = {
+  chainId: BSC_TESTNET_CHAIN_ID,
+  chainName: "BSC Testnet",
+  nativeCurrency: { name: "Test BNB", symbol: "tBNB", decimals: 18 },
+  rpcUrls: ["https://data-seed-prebsc-1-s1.bnbchain.org:8545"],
+  blockExplorerUrls: ["https://testnet.bscscan.com"]
+};
 
 const VANTEX_ABI = [
   "function members(address) view returns (address referrer,uint128 personalBusiness,uint128 legABusiness,uint128 legBBusiness,uint40 salaryStartedAt,uint8 salaryRank,uint8 salaryClaims,uint8 split,bool registered)",
@@ -66,6 +74,21 @@ function App() {
   const connect = async () => {
     if (!window.ethereum) return setNotice("Install a browser wallet such as MetaMask to continue.");
     try {
+      const currentChain = await window.ethereum.request({ method: "eth_chainId" });
+      if (currentChain !== BSC_TESTNET_CHAIN_ID) {
+        try {
+          await window.ethereum.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: BSC_TESTNET_CHAIN_ID }]
+          });
+        } catch (switchError) {
+          if (switchError.code !== 4902) throw switchError;
+          await window.ethereum.request({
+            method: "wallet_addEthereumChain",
+            params: [BSC_TESTNET]
+          });
+        }
+      }
       const nextProvider = new ethers.BrowserProvider(window.ethereum);
       const accounts = await nextProvider.send("eth_requestAccounts", []);
       setProvider(nextProvider); setAccount(accounts[0]); setNotice("");
@@ -76,8 +99,13 @@ function App() {
   useEffect(() => {
     if (!window.ethereum) return;
     const changed = (accounts) => { setAccount(accounts[0] || ""); if (accounts[0]) load(provider, accounts[0]); };
+    const chainChanged = () => window.location.reload();
     window.ethereum.on?.("accountsChanged", changed);
-    return () => window.ethereum.removeListener?.("accountsChanged", changed);
+    window.ethereum.on?.("chainChanged", chainChanged);
+    return () => {
+      window.ethereum.removeListener?.("accountsChanged", changed);
+      window.ethereum.removeListener?.("chainChanged", chainChanged);
+    };
   }, [provider]);
 
   useEffect(() => {
