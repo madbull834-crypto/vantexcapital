@@ -64,15 +64,7 @@ export default function Dashboard({
       {!isConfigured && <div className="portal-alert"><Activity size={18}/><span><b>Preview mode:</b> configure the contract addresses to enable live transactions.</span></div>}
       {notice && <div className="portal-alert notice-alert">{notice}</div>}
 
-      {account && member && !member.registered && <section className="portal-onboarding">
-        <div><span>ONE-TIME SETUP</span><h2>Join your sponsor’s organization</h2><p>Registration fixes your sponsor leg and your own business split permanently on-chain.</p></div>
-        <div className="portal-onboarding-form">
-          <label>Sponsor wallet<input value={referrer} onChange={event => setReferrer(event.target.value)} placeholder="0x…"/></label>
-          <label>Placement<select value={leg} onChange={event => setLeg(Number(event.target.value))}><option value={0}>Organization A</option><option value={1}>Organization B</option></select></label>
-          <label>Your split<select value={split} onChange={event => setSplit(Number(event.target.value))}><option value={0}>A 60% · B 40%</option><option value={1}>A 40% · B 60%</option></select></label>
-          <button disabled={busy} onClick={() => transact("register")}>{busy ? "Registering…" : "Complete registration"}<ArrowUpRight size={16}/></button>
-        </div>
-      </section>}
+      {account && member && !member.registered && <div className="portal-alert"><ShieldCheck size={18}/><span><b>One-step activation:</b> your first position will register your wallet and invest in one transaction.</span></div>}
 
       <section className="balance-hero">
         <div><span className="metric-label"><CircleDollarSign size={15}/> TOTAL POSITION VALUE</span><strong>${money(totalPrincipal + Number(data.pending))}</strong><p><b>${money(totalPrincipal)}</b> invested principal <i/> <em>${money(data.pending)} available</em></p></div>
@@ -102,11 +94,12 @@ export default function Dashboard({
 
         <section className="portal-card new-position-card">
           <div className="card-heading"><div><span>INVEST</span><h2>New position</h2></div><div className="plus-icon"><Plus size={18}/></div></div>
+          {account && member && !member.registered && <><label>Your network split</label><div className="portal-plan-picker"><button className={split === 0 ? "active" : ""} onClick={() => setSplit(0)}><b>A 60% · B 40%</b><span>Applied at activation</span></button><button className={split === 1 ? "active" : ""} onClick={() => setSplit(1)}><b>A 40% · B 60%</b><span>Applied at activation</span></button></div></>}
           <label>Choose package</label><div className="portal-plan-picker">{plans.map(plan => <button key={plan.index} className={selectedPlan === plan.index ? "active" : ""} onClick={() => setSelectedPlan(plan.index)}><b>{plan.name}</b><span>{plan.label} · {plan.totalRate} total</span></button>)}</div>
           <label>Amount <span>USDT</span></label><div className="portal-amount"><span>$</span><input type="number" min="1" max="2500" value={amount} onChange={event => setAmount(event.target.value)}/><b>USDT</b></div>
           <div className="portal-quick">{[100, 500, 1000, 2500].map(value => <button key={value} onClick={() => setAmount(String(value))}>${value.toLocaleString()}</button>)}</div>
           <div className="portal-summary"><span>Daily profit <b>{plans[selectedPlan].rate}</b></span><span>Daily capital release <b>{plans[selectedPlan].rate}</b></span><span>Daily total <b>{plans[selectedPlan].totalRate}</b></span><span>Duration <b>{plans[selectedPlan].days}</b></span><span>Projected total payout <b>+${money(projected)}</b></span></div>
-          <button className="portal-invest" disabled={busy || (member && !member.registered)} onClick={() => transact("invest")}>{busy ? "Processing transaction…" : account ? "Approve & create position" : "Connect wallet to continue"}<ArrowUpRight size={17}/></button>
+          <button className="portal-invest" disabled={busy} onClick={() => transact("invest")}>{busy ? "Processing transaction…" : !account ? "Connect wallet to continue" : member?.registered ? "Authorize & create position" : "Register & create position"}<ArrowUpRight size={17}/></button>
         </section>
       </div>
 

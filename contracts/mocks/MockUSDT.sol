@@ -2,9 +2,10 @@
 pragma solidity ^0.8.24;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 
-contract MockUSDT is ERC20 {
-    constructor() ERC20("Mock USDT", "mUSDT") {}
+contract MockUSDT is ERC20, ERC20Permit {
+    constructor() ERC20("Mock USDT", "mUSDT") ERC20Permit("Mock USDT") {}
     function decimals() public pure override returns (uint8) { return 6; }
     function mint(address to, uint256 amount) external { _mint(to, amount); }
 }

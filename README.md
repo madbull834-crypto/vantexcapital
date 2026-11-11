@@ -13,8 +13,8 @@ Full-stack EVM implementation of the supplied Vantex Capital brochure: a Solidit
 
 ## BSC Testnet contracts
 
-- Vantex: `0x9D648EF1c739db29a2a5186acE062Ad877dA0918`
-- Mock USDT: `0xbAf33f644C8aE8763369A7EB8814D0B69467614C`
+- Vantex: `0x8E322F5A05427a3F1C557303551B4354Ab154305`
+- Mock USDT: `0xAEf967A8C08AFd2F45D40a66E75612EC1C31BAC4`
 - Network: BSC Testnet (`97`)
 
 The frontend requests BSC Testnet when a wallet connects. No local blockchain deployment is required.

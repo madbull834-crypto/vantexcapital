@@ -25,6 +25,47 @@ describe("VantexCapital", function () {
     await expect(vantex.connect(carol).register(owner.address, 0, 1)).to.be.revertedWithCustomError(vantex, "LegOccupied");
   });
 
+  it("registers, authorizes the token, and creates a position in one transaction", async function () {
+    const { owner, alice, token, vantex } = await fixture();
+    const amount = usdt(501);
+    const deadline = (await time.latest()) + 3600;
+    const network = await ethers.provider.getNetwork();
+    const signature = await alice.signTypedData(
+      {
+        name: "Mock USDT",
+        version: "1",
+        chainId: network.chainId,
+        verifyingContract: await token.getAddress()
+      },
+      {
+        Permit: [
+          { name: "owner", type: "address" },
+          { name: "spender", type: "address" },
+          { name: "value", type: "uint256" },
+          { name: "nonce", type: "uint256" },
+          { name: "deadline", type: "uint256" }
+        ]
+      },
+      {
+        owner: alice.address,
+        spender: await vantex.getAddress(),
+        value: amount,
+        nonce: await token.nonces(alice.address),
+        deadline
+      }
+    );
+    const { v, r, s } = ethers.Signature.from(signature);
+
+    await token.connect(alice).approve(await vantex.getAddress(), 0);
+    await expect(vantex.connect(alice).registerAndInvestWithPermit(owner.address, 0, 0, amount, 2, deadline, v, r, s))
+      .to.emit(vantex, "Registered").withArgs(alice.address, owner.address, 0, 0)
+      .and.to.emit(vantex, "Invested");
+
+    expect((await vantex.members(alice.address)).registered).to.equal(true);
+    expect(await vantex.positionsOf(alice.address)).to.have.length(1);
+    expect(await token.allowance(alice.address, await vantex.getAddress())).to.equal(0);
+  });
+
   it("enforces all four brochure package ranges and rates", async function () {
     const { vantex } = await fixture();
     expect((await vantex.planTerms(usdt(100), 0))[0]).to.equal(100);

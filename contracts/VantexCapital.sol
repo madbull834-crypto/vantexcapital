@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -100,30 +101,39 @@ contract VantexCapital is Ownable, ReentrancyGuard {
     }
 
     function register(address referrer, Leg leg, Split split) external whenNotPaused {
-        if (members[msg.sender].registered) revert AlreadyRegistered();
-        if (referrer == address(0) || referrer == msg.sender || !members[referrer].registered) revert InvalidReferrer();
-        if (directLeg[referrer][leg] != address(0)) revert LegOccupied();
-        members[msg.sender].registered = true;
-        members[msg.sender].referrer = referrer;
-        members[msg.sender].split = split;
-        directLeg[referrer][leg] = msg.sender;
-        emit Registered(msg.sender, referrer, leg, split);
+        _register(msg.sender, referrer, leg, split);
     }
 
     function invest(uint256 amount, Plan plan) external nonReentrant whenNotPaused {
-        if (!members[msg.sender].registered) revert InvalidReferrer();
-        if (amount < unit || amount > 2_500 * unit) revert InvalidAmount();
-        if (_positions[msg.sender].length >= MAX_POSITIONS) revert TooManyPositions();
+        _invest(msg.sender, amount, plan);
+    }
 
-        (uint16 rate, uint32 duration) = planTerms(amount, plan);
-        paymentToken.safeTransferFrom(msg.sender, address(this), amount);
-        uint40 started = uint40(block.timestamp);
-        uint40 ends = started + duration;
-        _positions[msg.sender].push(Position(uint128(amount), 0, started, ends, rate, plan));
-        members[msg.sender].personalBusiness += uint128(amount);
-        totalDeposited += amount;
-        _propagateBusiness(msg.sender, amount);
-        emit Invested(msg.sender, _positions[msg.sender].length - 1, amount, plan, rate, ends);
+    function investWithPermit(
+        uint256 amount,
+        Plan plan,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external nonReentrant whenNotPaused {
+        IERC20Permit(address(paymentToken)).permit(msg.sender, address(this), amount, deadline, v, r, s);
+        _invest(msg.sender, amount, plan);
+    }
+
+    function registerAndInvestWithPermit(
+        address referrer,
+        Leg leg,
+        Split split,
+        uint256 amount,
+        Plan plan,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external nonReentrant whenNotPaused {
+        _register(msg.sender, referrer, leg, split);
+        IERC20Permit(address(paymentToken)).permit(msg.sender, address(this), amount, deadline, v, r, s);
+        _invest(msg.sender, amount, plan);
     }
 
     function claimRoi() external nonReentrant whenNotPaused returns (uint256 amount) {
@@ -237,6 +247,33 @@ contract VantexCapital is Ownable, ReentrancyGuard {
     function currentSalaryRank(address account) public view returns (uint8 rank) {
         uint256 business = _balancedBusiness(members[account]);
         for (uint8 i; i < 5; ++i) if (business >= uint256(salaryBusinessUsd[i]) * unit) rank = i + 1;
+    }
+
+    function _register(address account, address referrer, Leg leg, Split split) private {
+        if (members[account].registered) revert AlreadyRegistered();
+        if (referrer == address(0) || referrer == account || !members[referrer].registered) revert InvalidReferrer();
+        if (directLeg[referrer][leg] != address(0)) revert LegOccupied();
+        members[account].registered = true;
+        members[account].referrer = referrer;
+        members[account].split = split;
+        directLeg[referrer][leg] = account;
+        emit Registered(account, referrer, leg, split);
+    }
+
+    function _invest(address account, uint256 amount, Plan plan) private {
+        if (!members[account].registered) revert InvalidReferrer();
+        if (amount < unit || amount > 2_500 * unit) revert InvalidAmount();
+        if (_positions[account].length >= MAX_POSITIONS) revert TooManyPositions();
+
+        (uint16 rate, uint32 duration) = planTerms(amount, plan);
+        paymentToken.safeTransferFrom(account, address(this), amount);
+        uint40 started = uint40(block.timestamp);
+        uint40 ends = started + duration;
+        _positions[account].push(Position(uint128(amount), 0, started, ends, rate, plan));
+        members[account].personalBusiness += uint128(amount);
+        totalDeposited += amount;
+        _propagateBusiness(account, amount);
+        emit Invested(account, _positions[account].length - 1, amount, plan, rate, ends);
     }
 
     function _earned(Position storage position) private view returns (uint256) {

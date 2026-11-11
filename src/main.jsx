@@ -19,13 +19,23 @@ const BSC_TESTNET = {
 };
 
 const VANTEX_ABI = [
+  "error AlreadyRegistered()",
+  "error InvalidAmount()",
+  "error InvalidReferrer()",
+  "error LegOccupied()",
+  "error Paused()",
+  "error TooManyPositions()",
   "function members(address) view returns (address referrer,uint128 personalBusiness,uint128 legABusiness,uint128 legBBusiness,uint40 salaryStartedAt,uint8 salaryRank,uint8 salaryClaims,uint8 split,bool registered)",
+  "function owner() view returns (address)",
+  "function directLeg(address,uint8) view returns (address)",
   "function pendingRoi(address) view returns (uint256)",
   "function balancedBusiness(address) view returns (uint256)",
   "function qualifiedLevel(address) view returns (uint8)",
   "function positionsOf(address) view returns (tuple(uint128 principal,uint128 claimed,uint40 startedAt,uint40 endsAt,uint16 dailyRateBps,uint8 plan)[])",
   "function register(address referrer,uint8 leg,uint8 split)",
   "function invest(uint256 amount,uint8 plan)",
+  "function investWithPermit(uint256 amount,uint8 plan,uint256 deadline,uint8 v,bytes32 r,bytes32 s)",
+  "function registerAndInvestWithPermit(address referrer,uint8 leg,uint8 split,uint256 amount,uint8 plan,uint256 deadline,uint8 v,bytes32 r,bytes32 s)",
   "function compoundRoi(uint8 plan)",
   "function claimRoi()",
   "function claimSalary()"
@@ -34,6 +44,8 @@ const TOKEN_ABI = [
   "function approve(address,uint256) returns (bool)",
   "function allowance(address,address) view returns (uint256)",
   "function balanceOf(address) view returns (uint256)",
+  "function name() view returns (string)",
+  "function nonces(address) view returns (uint256)",
   "function mint(address,uint256)"
 ];
 
@@ -47,6 +59,20 @@ const plans = [
 const levels = [10, 5, 4, 3, 3, 3, 2, 2, 1, 1, 2, 2, 3, 4, 5];
 const fmt = (value, maximumFractionDigits = 2) => Number(value || 0).toLocaleString("en-US", { maximumFractionDigits, minimumFractionDigits: maximumFractionDigits });
 const short = (address) => address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "Connect wallet";
+
+const friendlyError = (error) => {
+  if (error?.code === "ACTION_REJECTED") return "Transaction cancelled in your wallet.";
+  const revertName = error?.revert?.name;
+  if (revertName === "InvalidReferrer") return "No valid sponsor placement was found. Refresh and try registration again.";
+  if (revertName === "LegOccupied") return "That sponsor placement was just taken. Click register again to select another open placement.";
+  if (revertName === "AlreadyRegistered") return "This wallet is already registered. Refreshing your account data should unlock investing.";
+  if (revertName === "InvalidAmount") return "The amount does not match the selected package range.";
+  if (revertName === "Paused") return "Transactions are temporarily paused by the contract owner.";
+  if (revertName === "TooManyPositions") return "This wallet has reached the maximum number of positions.";
+  const message = error?.shortMessage || error?.reason || error?.message || "Transaction failed.";
+  if (/insufficient funds/i.test(message)) return "You need BSC Testnet BNB in this wallet to pay transaction gas.";
+  return message;
+};
 
 function App() {
   const [route, setRoute] = useState(window.location.hash === "#/dashboard" ? "dashboard" : "home");
@@ -63,6 +89,23 @@ function App() {
   const isConfigured = ethers.isAddress(CONTRACT_ADDRESS) && ethers.isAddress(TOKEN_ADDRESS);
 
   const signerContract = async () => new ethers.Contract(CONTRACT_ADDRESS, VANTEX_ABI, await provider.getSigner());
+  const findOpenPlacement = async (reader) => {
+    const root = await reader.owner();
+    const queue = [root];
+    const visited = new Set();
+    while (queue.length && visited.size < 512) {
+      const sponsor = queue.shift();
+      const key = sponsor.toLowerCase();
+      if (visited.has(key)) continue;
+      visited.add(key);
+      const [legA, legB] = await Promise.all([reader.directLeg(sponsor, 0), reader.directLeg(sponsor, 1)]);
+      if (legA === ZERO) return { referrer: sponsor, leg: 0 };
+      if (legB === ZERO) return { referrer: sponsor, leg: 1 };
+      queue.push(legA, legB);
+    }
+    throw new Error("No open sponsor placement is currently available.");
+  };
+
   const load = async (activeProvider = provider, activeAccount = account) => {
     if (!activeProvider || !activeAccount || !isConfigured) return;
     try {
@@ -73,7 +116,12 @@ function App() {
         reader.qualifiedLevel(activeAccount), reader.positionsOf(activeAccount), token.balanceOf(activeAccount)
       ]);
       setData({ member, pending: ethers.formatUnits(pending, TOKEN_DECIMALS), business: ethers.formatUnits(business, TOKEN_DECIMALS), level: Number(level), positions, balance: ethers.formatUnits(balance, TOKEN_DECIMALS) });
-    } catch (error) { setNotice(error.shortMessage || "Could not read contract data on this network."); }
+      if (!member.registered) {
+        const placement = await findOpenPlacement(reader);
+        setReferrer(placement.referrer);
+        setLeg(placement.leg);
+      }
+    } catch (error) { setNotice(friendlyError(error)); }
   };
 
   const connect = async () => {
@@ -98,7 +146,7 @@ function App() {
       const accounts = await nextProvider.send("eth_requestAccounts", []);
       setProvider(nextProvider); setAccount(accounts[0]); setNotice("");
       await load(nextProvider, accounts[0]);
-    } catch (error) { setNotice(error.shortMessage || "Wallet connection was cancelled."); }
+    } catch (error) { setNotice(friendlyError(error)); }
   };
 
   useEffect(() => {
@@ -130,19 +178,87 @@ function App() {
         const token = new ethers.Contract(TOKEN_ADDRESS, TOKEN_ABI, await provider.getSigner());
         tx = await token.mint(account, ethers.parseUnits("10000", TOKEN_DECIMALS));
       } else if (kind === "register") {
-        if (!ethers.isAddress(referrer) || referrer === ZERO) throw new Error("Enter a valid referrer address.");
-        tx = await contract.register(referrer, leg, split);
+        let placement = { referrer, leg };
+        if (!ethers.isAddress(referrer) || referrer === ZERO) placement = await findOpenPlacement(contract);
+        else {
+          const [sponsor, occupant] = await Promise.all([contract.members(referrer), contract.directLeg(referrer, leg)]);
+          if (!sponsor.registered || occupant !== ZERO) placement = await findOpenPlacement(contract);
+        }
+        setReferrer(placement.referrer);
+        setLeg(placement.leg);
+        tx = await contract.register(placement.referrer, placement.leg, split);
       } else if (kind === "invest") {
         const value = ethers.parseUnits(amount || "0", TOKEN_DECIMALS);
-        const token = new ethers.Contract(TOKEN_ADDRESS, TOKEN_ABI, await provider.getSigner());
-        const allowance = await token.allowance(account, CONTRACT_ADDRESS);
-        if (allowance < value) { const approval = await token.approve(CONTRACT_ADDRESS, value); await approval.wait(); }
-        tx = await contract.invest(value, selectedPlan);
+        const signer = await provider.getSigner();
+        const token = new ethers.Contract(TOKEN_ADDRESS, TOKEN_ABI, signer);
+        const plan = plans[selectedPlan];
+        const numericAmount = Number(amount);
+        if (!Number.isFinite(numericAmount) || numericAmount < plan.min || numericAmount > plan.max) throw new Error(`Enter an amount from $${plan.min.toLocaleString()} to $${plan.max.toLocaleString()} for ${plan.name}.`);
+        const balance = await token.balanceOf(account);
+        if (balance < value) throw new Error(`Insufficient test mUSDT. Mint tokens first; this wallet has ${ethers.formatUnits(balance, TOKEN_DECIMALS)} mUSDT.`);
+        const currentMember = await contract.members(account);
+        let permitDetails;
+        try {
+          const [tokenName, nonce, network] = await Promise.all([token.name(), token.nonces(account), provider.getNetwork()]);
+          permitDetails = { tokenName, nonce, network };
+        } catch {
+          let placement = { referrer, leg };
+          if (!currentMember.registered) {
+            if (!ethers.isAddress(referrer) || referrer === ZERO) placement = await findOpenPlacement(contract);
+            else {
+              const [sponsor, occupant] = await Promise.all([contract.members(referrer), contract.directLeg(referrer, leg)]);
+              if (!sponsor.registered || occupant !== ZERO) placement = await findOpenPlacement(contract);
+            }
+            setNotice("Current testnet contracts require registration confirmation…");
+            const registration = await contract.register(placement.referrer, placement.leg, split);
+            await registration.wait();
+          }
+          const allowance = await token.allowance(account, CONTRACT_ADDRESS);
+          if (allowance < value) {
+            setNotice("Current testnet contracts require token approval confirmation…");
+            const approval = await token.approve(CONTRACT_ADDRESS, value);
+            await approval.wait();
+          }
+          tx = await contract.invest(value, selectedPlan);
+        }
+        if (tx) {
+          setNotice("Position transaction submitted. Waiting for confirmation…");
+          await tx.wait();
+          setNotice("Position created successfully.");
+          await load();
+          return;
+        }
+        const { tokenName, nonce, network } = permitDetails;
+        const deadline = Math.floor(Date.now() / 1000) + 3600;
+        const signature = await signer.signTypedData(
+          { name: tokenName, version: "1", chainId: network.chainId, verifyingContract: TOKEN_ADDRESS },
+          { Permit: [
+            { name: "owner", type: "address" },
+            { name: "spender", type: "address" },
+            { name: "value", type: "uint256" },
+            { name: "nonce", type: "uint256" },
+            { name: "deadline", type: "uint256" }
+          ] },
+          { owner: account, spender: CONTRACT_ADDRESS, value, nonce, deadline }
+        );
+        const { v, r, s } = ethers.Signature.from(signature);
+        if (currentMember.registered) tx = await contract.investWithPermit(value, selectedPlan, deadline, v, r, s);
+        else {
+          let placement = { referrer, leg };
+          if (!ethers.isAddress(referrer) || referrer === ZERO) placement = await findOpenPlacement(contract);
+          else {
+            const [sponsor, occupant] = await Promise.all([contract.members(referrer), contract.directLeg(referrer, leg)]);
+            if (!sponsor.registered || occupant !== ZERO) placement = await findOpenPlacement(contract);
+          }
+          setReferrer(placement.referrer);
+          setLeg(placement.leg);
+          tx = await contract.registerAndInvestWithPermit(placement.referrer, placement.leg, split, value, selectedPlan, deadline, v, r, s);
+        }
       } else if (kind === "compoundRoi") tx = await contract.compoundRoi(selectedPlan);
       else tx = await contract[kind]();
       setNotice("Transaction submitted. Waiting for confirmation…");
       await tx.wait(); setNotice("Transaction confirmed on-chain."); await load();
-    } catch (error) { setNotice(error.shortMessage || error.reason || "Transaction failed."); }
+    } catch (error) { setNotice(friendlyError(error)); }
     finally { setBusy(false); }
   };
 
@@ -234,15 +350,7 @@ function App() {
           <div className="dashboard-head"><div><div className="eyebrow">Investor console</div><h2>Your capital cockpit.</h2></div><button className="launch-dashboard" onClick={openDashboard}><LayoutDashboard size={17}/> Launch full dashboard <ArrowUpRight size={16}/></button></div>
           {!isConfigured && <div className="config-note"><Zap size={18}/><span><b>Preview mode.</b> Set the two contract address environment variables after deployment to enable live reads and transactions.</span></div>}
           {notice && <div className="notice">{notice}</div>}
-          {account && data.member && !data.member.registered && <div className="onboard-panel">
-            <div><span className="micro">ONE-TIME ONBOARDING</span><h3>Join a Vantex organization</h3><p>Enter your sponsor, select their available A or B leg, and choose how your own future organization will be balanced.</p></div>
-            <div className="onboard-form">
-              <label>Sponsor address<input value={referrer} onChange={e=>setReferrer(e.target.value)} placeholder="0x…"/></label>
-              <label>Sponsor leg<select value={leg} onChange={e=>setLeg(Number(e.target.value))}><option value={0}>Organization A</option><option value={1}>Organization B</option></select></label>
-              <label>Your split<select value={split} onChange={e=>setSplit(Number(e.target.value))}><option value={0}>A 60% / B 40%</option><option value={1}>A 40% / B 60%</option></select></label>
-              <button disabled={busy} onClick={()=>transact("register")}>{busy ? "Registering…" : "Register on-chain"}<ArrowUpRight size={17}/></button>
-            </div>
-          </div>}
+          {account && data.member && !data.member.registered && <div className="config-note"><ShieldCheck size={18}/><span><b>One-step activation.</b> Creating your first position registers the wallet and invests in one transaction.</span></div>}
           <div className="dashboard-grid">
             <div className="stats-panel">
               <div className="stat"><span><CircleDollarSign/>Wallet balance</span><strong>${fmt(data.balance)}</strong><small>USDT available</small></div>
@@ -256,7 +364,7 @@ function App() {
               <div className="amount-input"><span>$</span><input type="number" min="1" max="2500" value={amount} onChange={e => changeAmount(e.target.value)}/><b>USDT</b></div>
               <div className="quick">{[100,500,1000,2500].map(v => <button key={v} onClick={() => changeAmount(String(v))}>${v.toLocaleString()}</button>)}</div>
               <div className="summary"><div><span>Daily profit</span><b>{plans[selectedPlan].rate}</b></div><div><span>Daily total incl. capital</span><b>{plans[selectedPlan].totalRate}</b></div><div><span>Term</span><b>{plans[selectedPlan].days}</b></div><div><span>Projected total payout</span><b className="gold">+${fmt(projected)}</b></div></div>
-              <button className="invest-button" disabled={busy || (data.member && !data.member.registered)} onClick={() => transact("invest")}>{busy ? "Processing…" : account ? "Approve & invest" : "Connect wallet to invest"}<ArrowUpRight size={18}/></button>
+              <button className="invest-button" disabled={busy} onClick={() => transact("invest")}>{busy ? "Processing…" : !account ? "Connect wallet to invest" : data.member?.registered ? "Authorize & invest" : "Register & invest"}<ArrowUpRight size={18}/></button>
               <p className="fineprint">Projections are mathematical outputs of the contract terms, not a guarantee of profit. Review the contract and risks before transacting.</p>
             </div>
           </div>
