@@ -18,8 +18,6 @@ Full-stack EVM implementation of the supplied Vantex Capital brochure: a Solidit
 - Network: BSC Testnet (`97`)
 
 The frontend requests BSC Testnet when a wallet connects. No local blockchain deployment is required.
-Connected users can mint `1,000 mUSDT` from the dashboard's test-token faucet. The deployed MockUSDT has public minting and must never be treated as a production asset.
-New members enter only a sponsor address; the frontend automatically selects the sponsor's first available direct position and uses the contract's default 60/40 setting.
 
 ## Run the frontend
 

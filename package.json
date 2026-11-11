@@ -12,16 +12,12 @@
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.1.0",
-    "@react-three/drei": "9.120",
-    "@react-three/fiber": "8.17",
     "@vitejs/plugin-react": "^4.3.4",
     "dotenv": "^18.0.9",
     "ethers": "^6.13.5",
-    "framer-motion": "^11.18.2",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "three": "^0.170.0",
     "vite": "^6.0.7"
   },
   "devDependencies": {

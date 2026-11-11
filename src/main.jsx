@@ -1,13 +1,9 @@
-import React, { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ethers } from "ethers";
-import { motion, useReducedMotion } from "framer-motion";
 import { ArrowUpRight, BarChart3, ChevronRight, CircleDollarSign, Clock3, Crown, LayoutDashboard, Network, ShieldCheck, Sparkles, Users, Wallet, Zap } from "lucide-react";
 import Dashboard from "./Dashboard";
 import "./styles.css";
-import "./premium.css";
-
-const HeroScene = lazy(() => import("./HeroScene"));
 
 const CONTRACT_ADDRESS = import.meta.env.VITE_VANTEX_ADDRESS || "";
 const TOKEN_ADDRESS = import.meta.env.VITE_TOKEN_ADDRESS || "";
@@ -28,19 +24,13 @@ const VANTEX_ABI = [
   "function balancedBusiness(address) view returns (uint256)",
   "function qualifiedLevel(address) view returns (uint8)",
   "function positionsOf(address) view returns (tuple(uint128 principal,uint128 claimed,uint40 startedAt,uint40 endsAt,uint16 dailyRateBps,uint8 plan)[])",
-  "function directLeg(address,uint8) view returns (address)",
   "function register(address referrer,uint8 leg,uint8 split)",
   "function invest(uint256 amount,uint8 plan)",
   "function compoundRoi(uint8 plan)",
   "function claimRoi()",
   "function claimSalary()"
 ];
-const TOKEN_ABI = [
-  "function approve(address,uint256) returns (bool)",
-  "function allowance(address,address) view returns (uint256)",
-  "function balanceOf(address) view returns (uint256)",
-  "function mint(address,uint256)"
-];
+const TOKEN_ABI = ["function approve(address,uint256) returns (bool)", "function allowance(address,address) view returns (uint256)", "function balanceOf(address) view returns (uint256)"];
 
 const plans = [
   { name: "Package 1", label: "$1 — $100", rate: "0.50%", totalRate: "1.00%", rateValue: 1.00, min: 1, max: 100, days: "200 day cap", color: "gold", index: 0, copy: "0.50% profit + 0.50% capital release = 1.00% total daily." },
@@ -54,7 +44,6 @@ const fmt = (value, maximumFractionDigits = 2) => Number(value || 0).toLocaleStr
 const short = (address) => address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "Connect wallet";
 
 function App() {
-  const reducedMotion = useReducedMotion();
   const [route, setRoute] = useState(window.location.hash === "#/dashboard" ? "dashboard" : "home");
   const [account, setAccount] = useState("");
   const [provider, setProvider] = useState(null);
@@ -63,6 +52,8 @@ function App() {
   const [amount, setAmount] = useState("100");
   const [selectedPlan, setSelectedPlan] = useState(0);
   const [referrer, setReferrer] = useState("");
+  const [leg, setLeg] = useState(0);
+  const [split, setSplit] = useState(0);
   const [data, setData] = useState({ balance: "0", pending: "0", business: "0", level: 0, member: null, positions: [] });
   const isConfigured = ethers.isAddress(CONTRACT_ADDRESS) && ethers.isAddress(TOKEN_ADDRESS);
 
@@ -79,47 +70,6 @@ function App() {
       setData({ member, pending: ethers.formatUnits(pending, TOKEN_DECIMALS), business: ethers.formatUnits(business, TOKEN_DECIMALS), level: Number(level), positions, balance: ethers.formatUnits(balance, TOKEN_DECIMALS) });
     } catch (error) { setNotice(error.shortMessage || "Could not read contract data on this network."); }
   };
-
-  const loadNetwork = useCallback(async (maxDepth = 4) => {
-    if (!provider || !account || !isConfigured) return { nodes: [], truncated: false, loadedDepth: 0 };
-    const reader = new ethers.Contract(CONTRACT_ADDRESS, VANTEX_ABI, provider);
-    const nodeLimit = 500;
-    const nodes = [];
-    let frontier = [{ address: account, parent: ZERO, depth: 0, leg: "ROOT", team: "ROOT" }];
-    let truncated = false;
-
-    while (frontier.length && nodes.length < nodeLimit) {
-      const batch = frontier.slice(0, nodeLimit - nodes.length);
-      if (batch.length < frontier.length) truncated = true;
-      const enriched = await Promise.all(batch.map(async node => {
-        const [member, teamA, teamB] = await Promise.all([
-          reader.members(node.address),
-          reader.directLeg(node.address, 0),
-          reader.directLeg(node.address, 1)
-        ]);
-        return { ...node, member, teamA, teamB };
-      }));
-      nodes.push(...enriched);
-      const next = [];
-      for (const node of enriched) {
-        const children = [[node.teamA, "A"], [node.teamB, "B"]];
-        for (const [child, leg] of children) {
-          if (child === ZERO) continue;
-          if (node.depth >= maxDepth) { truncated = true; continue; }
-          next.push({
-            address: child,
-            parent: node.address,
-            depth: node.depth + 1,
-            leg,
-            team: node.depth === 0 ? leg : node.team
-          });
-        }
-      }
-      frontier = next;
-    }
-    if (frontier.length) truncated = true;
-    return { nodes, truncated, loadedDepth: nodes.reduce((depth, node) => Math.max(depth, node.depth), 0) };
-  }, [provider, account, isConfigured]);
 
   const connect = async () => {
     if (!window.ethereum) return setNotice("Install a browser wallet such as MetaMask to continue.");
@@ -171,28 +121,10 @@ function App() {
     try {
       const contract = await signerContract();
       let tx;
-      const registerAutomatically = async () => {
-        if (!ethers.isAddress(referrer) || referrer === ZERO) throw new Error("Enter a valid sponsor address.");
-        const [organizationA, organizationB] = await Promise.all([
-          contract.directLeg(referrer, 0),
-          contract.directLeg(referrer, 1)
-        ]);
-        const selectedLeg = organizationA === ZERO ? 0 : organizationB === ZERO ? 1 : -1;
-        if (selectedLeg === -1) throw new Error("This sponsor has no available direct position. Use another sponsor address.");
-        setNotice("Completing one-time sponsor registration…");
-        const registration = await contract.register(referrer, selectedLeg, 0);
-        await registration.wait();
-      };
-      if (kind === "mintTestToken") {
-        const token = new ethers.Contract(TOKEN_ADDRESS, TOKEN_ABI, await provider.getSigner());
-        tx = await token.mint(account, ethers.parseUnits("1000", TOKEN_DECIMALS));
-      } else if (kind === "register") {
-        await registerAutomatically();
-        setNotice("Sponsor registration confirmed on-chain.");
-        await load();
-        return;
+      if (kind === "register") {
+        if (!ethers.isAddress(referrer) || referrer === ZERO) throw new Error("Enter a valid referrer address.");
+        tx = await contract.register(referrer, leg, split);
       } else if (kind === "invest") {
-        if (data.member && !data.member.registered) await registerAutomatically();
         const value = ethers.parseUnits(amount || "0", TOKEN_DECIMALS);
         const token = new ethers.Contract(TOKEN_ADDRESS, TOKEN_ABI, await provider.getSigner());
         const allowance = await token.allowance(account, CONTRACT_ADDRESS);
@@ -201,9 +133,7 @@ function App() {
       } else if (kind === "compoundRoi") tx = await contract.compoundRoi(selectedPlan);
       else tx = await contract[kind]();
       setNotice("Transaction submitted. Waiting for confirmation…");
-      await tx.wait();
-      setNotice(kind === "mintTestToken" ? "1,000 test mUSDT minted to your wallet." : "Transaction confirmed on-chain.");
-      await load();
+      await tx.wait(); setNotice("Transaction confirmed on-chain."); await load();
     } catch (error) { setNotice(error.shortMessage || error.reason || "Transaction failed."); }
     finally { setBusy(false); }
   };
@@ -234,7 +164,7 @@ function App() {
   if (route === "dashboard") return <Dashboard {...{
     account, connect, data, notice, busy, isConfigured, plans, selectedPlan,
     setSelectedPlan: selectPlan, amount, setAmount: changeAmount, projected, transact, referrer,
-    setReferrer, loadNetwork
+    setReferrer, leg, setLeg, split, setSplit
   }} tokenDecimals={TOKEN_DECIMALS} onHome={openHome}/>;
 
   return <div className="app">
@@ -246,41 +176,42 @@ function App() {
 
     <main id="top">
       <section className="hero wrap">
-        <motion.div className="hero-copy" initial={reducedMotion ? false : { opacity: 0, y: 26 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.75, ease: [0.22, 1, 0.36, 1] }}>
+        <div className="hero-copy">
           <div className="eyebrow"><Sparkles size={14}/> Stablecoin-powered · On-chain accounting</div>
           <h1>Build your capital.<br/><em>Grow your network.</em></h1>
           <p>A transparent dashboard for the Vantex Capital plan—investment terms, daily accrual, referral rewards and business milestones in one place.</p>
           <div className="hero-actions"><button className="primary" onClick={openDashboard}>Open dashboard <ArrowUpRight size={18}/></button><a className="text-link" href="#plans">Explore plans <ChevronRight size={18}/></a></div>
           <div className="trust-row"><span><ShieldCheck/>Auditable rules</span><span><Clock3/>Daily accrual</span><span><Network/>15 levels</span></div>
-        </motion.div>
-        <motion.div className="hero-visual" initial={reducedMotion ? false : { opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 1, delay: 0.12, ease: [0.22, 1, 0.36, 1] }}>
+        </div>
+        <div className="hero-visual">
           <div className="orb orb-one"/><div className="orb orb-two"/>
-          <Suspense fallback={<div className="hero-scene-fallback"/>}><HeroScene reducedMotion={reducedMotion}/></Suspense>
           <div className="growth-card glass">
             <span className="micro">PROJECTED PLAN VALUE</span><strong>${fmt(Number(amount) + projected)}</strong>
             <div className="chart"><i/><i/><i/><i/><i/><i/><i/></div>
             <div className="growth-foot"><span>Principal ${fmt(amount)}</span><b>+${fmt(projected)} accrual</b></div>
           </div>
           <div className="float-card"><Crown/><span>PACKAGE 4 TOTAL<strong>1.30% daily</strong></span></div>
-        </motion.div>
+        </div>
       </section>
 
       <section className="ticker"><div>TRADE <b>◆</b> INVEST <b>◆</b> GROW <b>◆</b> COMPOUND <b>◆</b> BUILD <b>◆</b> TRADE <b>◆</b> INVEST</div></section>
 
       <section id="plans" className="section wrap">
         <div className="section-head"><div><div className="eyebrow">Investment packages</div><h2>Choose your pace.</h2></div><p>Four paths, one auditable accrual engine. All positions have a defined maximum term.</p></div>
-        <div className="plan-grid">{plans.map((plan, index) => <motion.article key={plan.name} initial={reducedMotion ? false : { opacity: 0, y: 22 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, amount: 0.25 }} transition={{ duration: 0.48, delay: index * 0.06 }} className={`plan-card ${plan.color} ${selectedPlan === plan.index ? "active" : ""}`} onClick={() => selectPlan(plan.index)}>
+        <div className="plan-grid">{plans.map((plan) => <article key={plan.name} className={`plan-card ${plan.color} ${selectedPlan === plan.index ? "active" : ""}`} onClick={() => selectPlan(plan.index)}>
           <div className="plan-top"><span>{plan.name}</span>{plan.index === 2 && <b>POPULAR</b>}</div>
           <h3>{plan.rate}</h3><small>daily profit</small><div className="divider"/>
           <strong>{plan.label}</strong>
           <p>{plan.days}. {plan.copy}</p><button>Select package <ArrowUpRight size={16}/></button>
-        </motion.article>)}</div>
+        </article>)}</div>
         <div className="tier-strip"><span>Package profit rates</span><b>$1–$100 <i>0.50%</i></b><b>$101–$500 <i>0.55%</i></b><b>$501–$1,000 <i>0.60%</i></b><b>$1,001–$2,500 <i>0.65%</i></b></div>
       </section>
 
       <section id="network" className="network-section">
         <div className="wrap network-grid">
-          <div><div className="eyebrow">ROI on ROI</div><h2>Fifteen levels.<br/>One connected system.</h2><p>Earn a percentage of claimed ROI across qualified network levels. Sponsor placement is handled automatically.</p></div>
+          <div><div className="eyebrow">ROI on ROI</div><h2>Fifteen levels.<br/>One connected system.</h2><p>Earn a percentage of claimed ROI across qualified network levels. Balanced A/B business unlocks deeper levels.</p>
+            <div className="split-card glass"><span>Choose your organization split</span><div><b>A <em>60%</em></b><i>or</i><b>B <em>60%</em></b></div><small>The opposite organization carries 40%.</small></div>
+          </div>
           <div className="level-stack">{levels.map((rate, i) => <div key={i}><span>L{i+1}</span><i style={{width:`${rate*8}%`}}/><b>{rate}%</b></div>)}</div>
         </div>
       </section>
@@ -296,15 +227,17 @@ function App() {
           {!isConfigured && <div className="config-note"><Zap size={18}/><span><b>Preview mode.</b> Set the two contract address environment variables after deployment to enable live reads and transactions.</span></div>}
           {notice && <div className="notice">{notice}</div>}
           {account && data.member && !data.member.registered && <div className="onboard-panel">
-            <div><span className="micro">ONE-TIME ONBOARDING</span><h3>Confirm your sponsor</h3><p>Enter your sponsor address. The platform handles placement automatically.</p></div>
-            <div className="onboard-form simplified">
+            <div><span className="micro">ONE-TIME ONBOARDING</span><h3>Join a Vantex organization</h3><p>Enter your sponsor, select their available A or B leg, and choose how your own future organization will be balanced.</p></div>
+            <div className="onboard-form">
               <label>Sponsor address<input value={referrer} onChange={e=>setReferrer(e.target.value)} placeholder="0x…"/></label>
-              <button disabled={busy} onClick={()=>transact("register")}>{busy ? "Registering…" : "Confirm sponsor"}<ArrowUpRight size={17}/></button>
+              <label>Sponsor leg<select value={leg} onChange={e=>setLeg(Number(e.target.value))}><option value={0}>Organization A</option><option value={1}>Organization B</option></select></label>
+              <label>Your split<select value={split} onChange={e=>setSplit(Number(e.target.value))}><option value={0}>A 60% / B 40%</option><option value={1}>A 40% / B 60%</option></select></label>
+              <button disabled={busy} onClick={()=>transact("register")}>{busy ? "Registering…" : "Register on-chain"}<ArrowUpRight size={17}/></button>
             </div>
           </div>}
           <div className="dashboard-grid">
             <div className="stats-panel">
-              <div className="stat"><span><CircleDollarSign/>Wallet balance</span><strong>${fmt(data.balance)}</strong><small>Test mUSDT available</small><button disabled={busy} onClick={() => transact("mintTestToken")}>Get 1,000 test mUSDT</button></div>
+              <div className="stat"><span><CircleDollarSign/>Wallet balance</span><strong>${fmt(data.balance)}</strong><small>USDT available</small></div>
               <div className="stat accent"><span><BarChart3/>Claimable ROI</span><strong>${fmt(data.pending)}</strong><div className="stat-actions"><button disabled={busy || !account} onClick={() => transact("claimRoi")}>Claim rewards</button><button disabled={busy || !account || Number(data.pending) < 1} onClick={() => transact("compoundRoi")}>Compound into {plans[selectedPlan].name}</button></div></div>
               <div className="stat"><span><Users/>Balanced business</span><strong>${fmt(data.business)}</strong><small>Qualified through level {data.level}</small></div>
               <div className="stat"><span><Crown/>Salary rank</span><strong>{data.member ? Number(data.member.salaryRank) : 0}<i>/5</i></strong><button disabled={busy || !account} onClick={() => transact("claimSalary")}>Claim salary</button></div>
@@ -315,7 +248,7 @@ function App() {
               <div className="amount-input"><span>$</span><input type="number" min="1" max="2500" value={amount} onChange={e => changeAmount(e.target.value)}/><b>USDT</b></div>
               <div className="quick">{[100,500,1000,2500].map(v => <button key={v} onClick={() => changeAmount(String(v))}>${v.toLocaleString()}</button>)}</div>
               <div className="summary"><div><span>Daily profit</span><b>{plans[selectedPlan].rate}</b></div><div><span>Daily total incl. capital</span><b>{plans[selectedPlan].totalRate}</b></div><div><span>Term</span><b>{plans[selectedPlan].days}</b></div><div><span>Projected total payout</span><b className="gold">+${fmt(projected)}</b></div></div>
-              <button className="invest-button" disabled={busy} onClick={() => transact("invest")}>{busy ? "Processing…" : account ? data.member && !data.member.registered ? "Register & invest" : "Approve & invest" : "Connect wallet to invest"}<ArrowUpRight size={18}/></button>
+              <button className="invest-button" disabled={busy || (data.member && !data.member.registered)} onClick={() => transact("invest")}>{busy ? "Processing…" : account ? "Approve & invest" : "Connect wallet to invest"}<ArrowUpRight size={18}/></button>
               <p className="fineprint">Projections are mathematical outputs of the contract terms, not a guarantee of profit. Review the contract and risks before transacting.</p>
             </div>
           </div>
