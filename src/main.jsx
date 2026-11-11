@@ -30,7 +30,12 @@ const VANTEX_ABI = [
   "function claimRoi()",
   "function claimSalary()"
 ];
-const TOKEN_ABI = ["function approve(address,uint256) returns (bool)", "function allowance(address,address) view returns (uint256)", "function balanceOf(address) view returns (uint256)"];
+const TOKEN_ABI = [
+  "function approve(address,uint256) returns (bool)",
+  "function allowance(address,address) view returns (uint256)",
+  "function balanceOf(address) view returns (uint256)",
+  "function mint(address,uint256)"
+];
 
 const plans = [
   { name: "Package 1", label: "$1 — $100", rate: "0.50%", totalRate: "1.00%", rateValue: 1.00, min: 1, max: 100, days: "200 day cap", color: "gold", index: 0, copy: "0.50% profit + 0.50% capital release = 1.00% total daily." },
@@ -121,7 +126,10 @@ function App() {
     try {
       const contract = await signerContract();
       let tx;
-      if (kind === "register") {
+      if (kind === "mint") {
+        const token = new ethers.Contract(TOKEN_ADDRESS, TOKEN_ABI, await provider.getSigner());
+        tx = await token.mint(account, ethers.parseUnits("10000", TOKEN_DECIMALS));
+      } else if (kind === "register") {
         if (!ethers.isAddress(referrer) || referrer === ZERO) throw new Error("Enter a valid referrer address.");
         tx = await contract.register(referrer, leg, split);
       } else if (kind === "invest") {

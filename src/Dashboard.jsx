@@ -81,7 +81,7 @@ export default function Dashboard({
       </section>
 
       <section className="portal-metrics">
-        <article><div className="metric-icon blue"><Wallet/></div><span>Wallet balance</span><strong>${money(data.balance)}</strong><small>Available USDT</small></article>
+        <article className="wallet-balance-card"><div className="metric-icon blue"><Wallet/></div><span>Wallet balance</span><strong>${money(data.balance)}</strong><small>Available test mUSDT</small><button className="faucet-button" disabled={busy} onClick={() => transact("mint")}><Plus size={13}/>{busy ? "Processing…" : account ? "Mint 10,000 test mUSDT" : "Connect wallet to mint"}</button></article>
         <article><div className="metric-icon amber"><BriefcaseBusiness/></div><span>Active positions</span><strong>{positions.filter(position => position.active).length}</strong><small>{positions.length} total positions</small></article>
         <article><div className="metric-icon green"><Users/></div><span>Balanced business</span><strong>${money(data.business, 0)}</strong><small>Qualified through level {data.level}</small></article>
         <article><div className="metric-icon violet"><Crown/></div><span>Salary rank</span><strong>{member ? Number(member.salaryRank) : 0}<i>/5</i></strong><small>{member ? Number(member.salaryClaims) : 0} cycles claimed</small></article>
